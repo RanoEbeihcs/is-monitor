@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ice Acoustic Monitor v2</title>
+<style>
+:root { color-scheme: dark; }
+body { font-family: system-ui, sans-serif; margin:0; background:#08111b; color:#eaf4ff; }
+header { padding:18px 20px; background:#0d1d2b; border-bottom:1px solid #234055; }
+h1 { margin:0 0 4px; font-size:22px; } .sub { color:#9db3c6; }
+main { max-width:1100px; margin:auto; padding:18px; display:grid; gap:16px; }
+.card { background:#0d1a27; border:1px solid #234055; border-radius:14px; padding:16px; }
+.row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+button, select, input { font:inherit; }
+button { background:#17415d; color:#fff; border:1px solid #36749a; padding:10px 14px; border-radius:9px; cursor:pointer; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+input, select { background:#08111b; color:#fff; border:1px solid #31526a; border-radius:8px; padding:9px; }
+label { display:grid; gap:5px; color:#a9bfd0; font-size:13px; }
+canvas { width:100%; height:260px; background:#050b11; border-radius:10px; }
+.metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.metric { background:#08111b; padding:12px; border-radius:10px; }
+.metric b { display:block; font-size:20px; color:#fff; margin-top:3px; }
+.notice { color:#ffd78a; }
+.ok { color:#8fe3a1; }
+.bad { color:#ff9d9d; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th,td { text-align:left; padding:8px; border-bottom:1px solid #233847; }
+.small { font-size:12px; color:#8fa7b8; }
+#countdown { font-size:30px; font-weight:700; min-width:70px; text-align:center; }
+.candidate { padding:8px 10px; border:1px solid #34546a; border-radius:8px; cursor:pointer; }
+.candidate.selected { border-color:#fff; background:#17354a; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ice Acoustic Monitor v2</h1>
+  <div class="sub">Natural-ice acoustic research prototype — Calibration Mode</div>
+</header>
+<main>
+  <section class="card">
+    <div class="row">
+      <button id="startMic">Starta mikrofon</button>
+      <button id="stopMic" disabled>Stoppa mikrofon</button>
+      <span id="micStatus" class="small">Mikrofon ej startad</span>
+    </div>
+    <p class="small">Tillåt mikrofonåtkomst. Hörlurar rekommenderas. Webbläsaren kan behöva HTTPS eller localhost.</p>
+  </section>
+
+  <section class="card">
+    <h2>Live-signal</h2>
+    <canvas id="spectrum" width="1000" height="260"></canvas>
+    <div class="metrics">
+      <div class="metric">RMS<b id="rms">–</b></div>
+      <div class="metric">Dominant frekvens<b id="domFreq">–</b></div>
+      <div class="metric">Stabilitet<b id="stability">–</b></div>
+      <div class="metric">Ice-signal score<b id="score">–</b></div>
+    </div>
+    <p id="signalText" class="small">Starta mikrofonen för att analysera signalen.</p>
+  </section>
+
+  <section class="card">
+    <h2>Calibration Mode</h2>
+    <p class="small">Spela in ett kort ljudprov. Därefter väljer du den resonans/frekvens som du anser hör ihop med isen och matar in den verkligt uppmätta istjockleken.</p>
+    <div class="row">
+      <label>Inspelning (sek)
+        <input id="duration" type="number" min="1" max="15" step="1" value="5">
+      </label>
+      <button id="recordBtn" disabled>Starta kalibreringsinspelning</button>
+      <span id="countdown">–</span>
+    </div>
+    <div id="candidates" class="row" style="margin-top:14px"></div>
+    <p class="small">Kandidaterna är automatiskt upptäckta spektrala toppar. Välj den topp som bäst representerar isresonansen. Spara sedan mätningen med verklig tjocklek.</p>
+  </section>
+
+  <section class="card">
+    <h2>Spara mätning</h2>
+    <div class="row">
+      <label>Istjocklek (cm)
+        <input id="thickness" type="number" min="0" step="0.1" placeholder="t.ex. 5.6">
+      </label>
+      <label>Is-typ
+        <select id="iceType">
+          <option value="sötvattenis">Sötvattenis</option>
+          <option value="kärnis">Kärnis</option>
+          <option value="stöpis/porös is">Stöpis/porös is</option>
+          <option value="blandad">Blandad</option>
+          <option value="saltvattenis">Saltvattenis</option>
+          <option value="okänd">Okänd</option>
+        </select>
+      </label>
+      <label>Temperatur °C
+        <input id="temperature" type="number" step="0.1" placeholder="t.ex. -4.5">
+      </label>
+      <label>Ljudkälla
+        <select id="source">
+          <option value="skridskoåkning">Skridskoåkning</option>
+          <option value="skridskoslag">Skridskoslag/tappning</option>
+          <option value="hopp">Hopp/impuls</option>
+          <option value="naturligt isljud">Naturligt isljud</option>
+          <option value="annat">Annat</option>
+        </select>
+      </label>
+      <label>Anteckning
+        <input id="note" type="text" placeholder="t.ex. nära strand, vindstilla">
+      </label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="saveBtn" disabled>Spara mätning</button>
+      <button id="downloadAudioBtn" disabled>Ladda ner senaste ljudprov</button>
+      <button id="exportJson">Exportera JSON</button>
+      <button id="exportCsv">Exportera CSV</button>
+      <button id="clearData">Rensa dataset</button>
+    </div>
+    <p id="saveStatus" class="small"></p>
+  </section>
+
+  <section class="card">
+    <h2>Insamlade mätningar <span id="count">(0)</span></h2>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Tid</th><th>Resonans</th><th>Tjocklek</th><th>Is</th><th>Temp</th><th>Källa</th><th>Kvalitet</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <p class="small">Audio sparas lokalt i webbläsaren för den senaste inspelningen. Dataset-exporten innehåller mätmetadata. Ljudfiler kan laddas ner separat och användas för framtida ML-träning.</p>
+  </section>
+
+  <section class="card">
+    <h2>Viktigt</h2>
+    <p class="notice">Detta är ett forsknings-/prototypverktyg och ska inte användas som enda underlag för att bedöma om is är säker att beträda. Verifiera alltid isförhållanden med oberoende metoder.</p>
+  </section>
+</main>
+
+<script>
+let audioCtx, analyser, sourceNode, stream, raf;
+let freqData, timeData;
+let peakHistory = [];
+let currentCandidates = [];
+let selectedFreq = null;
+let lastAudioBlob = null;
+let lastRecording = null;
+let dataset = JSON.parse(localStorage.getItem('iceDatasetV2') || '[]');
+let recorder, chunks = [], recording = false;
+
+const $ = id => document.getElementById(id);
+const spectrum = $('spectrum'), ctx = spectrum.getContext('2d');
+
+async function startMic() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1 }
+    });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:44100});
+    sourceNode = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0.35;
+    sourceNode.connect(analyser);
+    freqData = new Float32Array(analyser.frequencyBinCount);
+    timeData = new Float32Array(analyser.fftSize);
+    $('micStatus').textContent = `Mikrofon aktiv (${Math.round(audioCtx.sampleRate)} Hz)`;
+    $('startMic').disabled = true; $('stopMic').disabled = false; $('recordBtn').disabled = false;
+    draw();
+  } catch(e) {
+    $('micStatus').textContent = 'Kunde inte starta mikrofon: ' + e.message;
+  }
+}
+
+function stopMic() {
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  if (audioCtx) audioCtx.close();
+  cancelAnimationFrame(raf);
+  $('startMic').disabled=false; $('stopMic').disabled=true; $('recordBtn').disabled=true;
+  $('micStatus').textContent='Mikrofon stoppad';
+}
+
+function dbFromRms(rms){ return 20*Math.log10(Math.max(rms,1e-8)); }
+
+function draw() {
+  if (!analyser) return;
+  analyser.getFloatFrequencyData(freqData);
+  analyser.getFloatTimeDomainData(timeData);
+  let sum=0; for (const x of timeData) sum += x*x;
+  const rms=Math.sqrt(sum/timeData.length);
+  $('rms').textContent=dbFromRms(rms).toFixed(1)+' dBFS';
+
+  const nyq=audioCtx.sampleRate/2;
+  const minHz=20, maxHz=Math.min(8000,nyq);
+  let max=-Infinity, maxBin=0;
+  for(let i=1;i<freqData.length;i++){
+    const hz=i*audioCtx.sampleRate/analyser.fftSize;
+    if(hz<minHz||hz>maxHz) continue;
+    if(freqData[i]>max){max=freqData[i];maxBin=i;}
+  }
+  const dom=maxBin*audioCtx.sampleRate/analyser.fftSize;
+  peakHistory.push(dom); if(peakHistory.length>40) peakHistory.shift();
+  const avg=peakHistory.reduce((a,b)=>a+b,0)/peakHistory.length;
+  const sd=Math.sqrt(peakHistory.reduce((s,x)=>s+(x-avg)**2,0)/Math.max(1,peakHistory.length));
+  const stability=Math.max(0,1-sd/Math.max(dom,1));
+  $('domFreq').textContent=dom>0?dom.toFixed(0)+' Hz':'–';
+  $('stability').textContent=(stability*100).toFixed(0)+' %';
+
+  const score=Math.max(0,Math.min(100, stability*65 + Math.max(0,Math.min(35,(max+100)*1.4))));
+  $('score').textContent=score.toFixed(0)+'/100';
+  $('signalText').textContent = score>65 ? 'Möjlig smal/stabil resonans — kandidat för kalibrering.' : 'Ingen tydlig resonanskandidat just nu.';
+
+  ctx.clearRect(0,0,spectrum.width,spectrum.height);
+  ctx.beginPath();
+  for(let x=0;x<spectrum.width;x++){
+    const hz=minHz+(x/spectrum.width)*(maxHz-minHz);
+    const bin=Math.floor(hz/(audioCtx.sampleRate/analyser.fftSize));
+    const v=bin<freqData.length?freqData[bin]:-100;
+    const y=spectrum.height-((v+100)/100)*spectrum.height;
+    if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.strokeStyle='#67c7ff'; ctx.lineWidth=2; ctx.stroke();
+  raf=requestAnimationFrame(draw);
+}
+
+function getCandidates() {
+  if(!analyser) return [];
+  analyser.getFloatFrequencyData(freqData);
+  const step=audioCtx.sampleRate/analyser.fftSize;
+  let peaks=[];
+  for(let i=3;i<freqData.length-3;i++){
+    const hz=i*step;
+    if(hz<40 || hz>8000) continue;
+    const v=freqData[i];
+    if(v>freqData[i-1] && v>=freqData[i+1] && v>-75) peaks.push({hz,v});
+  }
+  peaks.sort((a,b)=>b.v-a.v);
+  const picked=[];
+  for(const p of peaks){
+    if(picked.every(q=>Math.abs(q.hz-p.hz)>30)){
+      picked.push(p); if(picked.length>=6) break;
+    }
+  }
+  return picked;
+}
+
+function renderCandidates() {
+  currentCandidates=getCandidates();
+  const box=$('candidates'); box.innerHTML='';
+  if(!currentCandidates.length){box.textContent='Inga tydliga kandidater hittades.'; return;}
+  currentCandidates.forEach(p=>{
+    const el=document.createElement('button');
+    el.className='candidate'+(selectedFreq && Math.abs(selectedFreq-p.hz)<1?' selected':'');
+    el.textContent=p.hz.toFixed(0)+' Hz';
+    el.onclick=()=>{selectedFreq=p.hz; renderCandidates();};
+    box.appendChild(el);
+  });
+}
+
+async function recordCalibration() {
+  if(!stream) return;
+  selectedFreq=null; renderCandidates();
+  const seconds=Math.max(1,Math.min(15,Number($('duration').value)||5));
+  chunks=[]; recording=true; $('recordBtn').disabled=true;
+  const mime=['audio/webm;codecs=opus','audio/webm','audio/ogg'].find(x=>MediaRecorder.isTypeSupported(x)) || '';
+  recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);
+  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+  recorder.onstop=()=>{
+    lastAudioBlob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});
+    lastRecording={blob:lastAudioBlob, startedAt:new Date().toISOString()};
+    $('downloadAudioBtn').disabled=false;
+    $('recordBtn').disabled=false; recording=false;
+    renderCandidates();
+    $('saveStatus').textContent='Inspelning klar. Välj resonansfrekvens och fyll i mätvärdena.';
+  };
+  recorder.start();
+  let left=seconds; $('countdown').textContent=left;
+  const timer=setInterval(()=>{left--; $('countdown').textContent=left>0?left:'KLAR'; if(left<=0){clearInterval(timer);recorder.stop();}},1000);
+}
+
+function saveMeasurement() {
+  const thickness=Number($('thickness').value);
+  if(!selectedFreq || !Number.isFinite(thickness) || thickness<=0) {
+    $('saveStatus').textContent='Välj en resonansfrekvens och ange istjocklek i cm.';
+    return;
+  }
+  const rec={
+    id:crypto.randomUUID(),
+    timestamp:new Date().toISOString(),
+    frequency_hz:Number(selectedFreq.toFixed(2)),
+    thickness_cm:Number(thickness.toFixed(2)),
+    ice_type:$('iceType').value,
+    temperature_c:$('temperature').value===''?null:Number($('temperature').value),
+    source:$('source').value,
+    note:$('note').value,
+    sample_rate_hz:audioCtx?.sampleRate||44100,
+    fft_size:analyser?.fftSize||4096,
+    audio_filename:`ice_${Date.now()}.webm`
+  };
+  dataset.push(rec); localStorage.setItem('iceDatasetV2',JSON.stringify(dataset));
+  renderTable();
+  $('saveStatus').innerHTML='<span class="ok">Mätningen sparad lokalt.</span> Kopiera/exportera datasetet regelbundet.';
+}
+
+function renderTable(){
+  $('count').textContent='('+dataset.length+')';
+  const body=$('tableBody'); body.innerHTML='';
+  [...dataset].reverse().forEach(r=>{
+    const tr=document.createElement('tr');
+    [new Date(r.timestamp).toLocaleString('sv-SE'),r.frequency_hz+' Hz',r.thickness_cm+' cm',r.ice_type,r.temperature_c==null?'–':r.temperature_c+' °C',r.source,'sparad'].forEach(v=>{
+      const td=document.createElement('td'); td.textContent=v; tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+
+function download(name,blob,type){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+function exportJson(){
+  download('ice_dataset_v2.json',new Blob([JSON.stringify(dataset,null,2)],{type:'application/json'}));
+}
+function csvEscape(v){ return '"'+String(v??'').replaceAll('"','""')+'"'; }
+function exportCsv(){
+  const cols=['id','timestamp','frequency_hz','thickness_cm','ice_type','temperature_c','source','note','sample_rate_hz','fft_size','audio_filename'];
+  const lines=[cols.join(',')].concat(dataset.map(r=>cols.map(c=>csvEscape(r[c])).join(',')));
+  download('ice_dataset_v2.csv',new Blob([lines.join('\\n')],{type:'text/csv;charset=utf-8'}));
+}
+
+$('startMic').onclick=startMic; $('stopMic').onclick=stopMic;
+$('recordBtn').onclick=recordCalibration; $('saveBtn').onclick=saveMeasurement;
+$('exportJson').onclick=exportJson; $('exportCsv').onclick=exportCsv;
+$('clearData').onclick=()=>{if(confirm('Radera alla sparade metadata i denna webbläsare?')){dataset=[];localStorage.removeItem('iceDatasetV2');renderTable();}};
+$('downloadAudioBtn').onclick=()=>{if(lastAudioBlob) download(lastRecording?.startedAt.replaceAll(':','-')+'_ice_sample.webm',lastAudioBlob);};
+setInterval(()=>{if(analyser && !recording) renderCandidates();},1200);
+renderTable();
+</script>
+</body>
+</html>
